@@ -28,9 +28,13 @@ pub struct Args {
     )]
     pub interface: String,
 
-    /// Port to listen on
+    /// UDP port to listen on
     #[clap(short = 'p', long, env = "ROUGHENOUGH_PORT", default_value = "2003")]
     pub port: u16,
+
+    /// TCP port to listen on (enables TCP transport alongside UDP)
+    #[clap(long, env = "ROUGHENOUGH_TCP_PORT")]
+    pub tcp_port: Option<u16>,
 
     /// Number of worker threads to process requests in parallel
     #[clap(
@@ -153,6 +157,17 @@ impl Args {
             .expect("invalid IP address or interface name");
 
         SocketAddr::new(addr, self.port)
+    }
+
+    pub fn tcp_socket_addr(&self) -> Option<SocketAddr> {
+        self.tcp_port.map(|port| {
+            let addr = self
+                .interface
+                .parse()
+                .expect("invalid IP address or interface name");
+
+            SocketAddr::new(addr, port)
+        })
     }
 
     pub fn version(&self) -> ProtocolVersion {

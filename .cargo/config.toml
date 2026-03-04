@@ -1,0 +1,15 @@
+[net]
+# Require Cargo.lock to be present and up-to-date. Builds fail if Cargo.lock
+# is missing or out of sync with Cargo.toml, preventing silent dependency changes.
+# This is the core TOFU enforcement: the first `cargo update` records SHA256
+# checksums in Cargo.lock, and all subsequent builds verify against them.
+locked = true
+
+[install]
+# Also enforce locked builds for `cargo install` from this workspace.
+locked = true
+
+[registries.crates-io]
+# Use the sparse protocol for registry index access (per-crate HTTPS fetches
+# rather than a full git clone of the index).
+protocol = "sparse"

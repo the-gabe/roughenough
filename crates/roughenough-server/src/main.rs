@@ -20,7 +20,7 @@
 mod worker;
 
 use std::io;
-use std::net::UdpSocket as StdUdpSocket;
+use std::net::{TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Release;
@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use crossbeam_channel::{Sender, bounded};
-use mio::net::UdpSocket as MioUdpSocket;
+use mio::net::{TcpListener as MioTcpListener, UdpSocket as MioUdpSocket};
 use roughenough_keys::seed::{Seed, SeedBackend, try_choose_backend};
 use roughenough_keys::storage::try_load_seed_sync;
 use roughenough_protocol::util::ClockSource;
@@ -38,7 +38,7 @@ use roughenough_server::keysource::KeySource;
 use roughenough_server::metrics::aggregator::{MetricsAggregator, WorkerMetrics};
 use roughenough_server::metrics::snapshot::validate_metrics_directory;
 use roughenough_server::responses::ResponseHandler;
-use socket2::{Domain, Socket, Type};
+use socket2::{Domain, Protocol, Socket, Type};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -65,6 +65,10 @@ fn main() {
     );
 
     info!("Long term public key: {:?}", key_source.public_key());
+
+    if let Some(tcp_addr) = args.tcp_socket_addr() {
+        info!("TCP listener enabled on {tcp_addr}");
+    }
 
     let (metrics_thread, metrics_chan_tx) =
         start_metrics_thread(&args, clock.clone(), &KEEP_RUNNING);
@@ -128,7 +132,12 @@ fn worker_task(
     clock: ClockSource,
     metrics_channel: Sender<WorkerMetrics>,
 ) {
-    let sock = bind_socket(&args).expect("Failed to bind socket");
+    let udp_sock = bind_udp_socket(&args).expect("Failed to bind UDP socket");
+    let tcp_listener = args
+        .tcp_socket_addr()
+        .map(|_| bind_tcp_listener(&args).expect("Failed to bind TCP listener"));
+
+    let has_tcp = tcp_listener.is_some();
     let responder = ResponseHandler::new(args.batch_size, key_source);
     let metrics_interval = Duration::from_secs(args.metrics_interval);
     let idx = idx as usize;
@@ -140,13 +149,14 @@ fn worker_task(
         clock,
         metrics_channel,
         metrics_interval,
+        has_tcp,
     );
-    worker.run(sock, &KEEP_RUNNING);
+    worker.run(udp_sock, tcp_listener, &KEEP_RUNNING);
 }
 
 // Bind to the server port using SO_REUSEPORT and SO_REUSEADDR so the kernel will fairly
 // balance traffic to each worker. https://lwn.net/Articles/542629/
-fn bind_socket(args: &Args) -> io::Result<MioUdpSocket> {
+fn bind_udp_socket(args: &Args) -> io::Result<MioUdpSocket> {
     let sock_addr = args.udp_socket_addr();
     let sock_domain = Domain::for_address(sock_addr);
     let socket = Socket::new(sock_domain, Type::DGRAM, None)?;
@@ -158,6 +168,21 @@ fn bind_socket(args: &Args) -> io::Result<MioUdpSocket> {
     let std_socket: StdUdpSocket = socket.into();
     let mio_socket: MioUdpSocket = MioUdpSocket::from_std(std_socket);
     Ok(mio_socket)
+}
+
+fn bind_tcp_listener(args: &Args) -> io::Result<MioTcpListener> {
+    let sock_addr = args.tcp_socket_addr().expect("tcp_port must be set");
+    let sock_domain = Domain::for_address(sock_addr);
+    let socket = Socket::new(sock_domain, Type::STREAM, Some(Protocol::TCP))?;
+    socket.set_nonblocking(true)?;
+    socket.set_reuse_address(true)?;
+    socket.set_reuse_port(true)?;
+    socket.bind(&sock_addr.into())?;
+    socket.listen(128)?;
+
+    let std_listener: StdTcpListener = socket.into();
+    let mio_listener = MioTcpListener::from_std(std_listener);
+    Ok(mio_listener)
 }
 
 fn set_ctrlc_handler() {

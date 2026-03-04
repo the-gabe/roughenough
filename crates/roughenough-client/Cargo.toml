@@ -13,6 +13,7 @@ categories = ["network-programming", "command-line-utilities", "date-and-time"]
 [features]
 default = []
 reporting = ["dep:ureq"]
+tls = ["dep:rustls", "dep:rustls-native-certs"]
 
 [[bin]]
 name = "roughenough_client"
@@ -34,4 +35,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+rustls = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
 ureq = { workspace = true, features = ["json"], optional = true }

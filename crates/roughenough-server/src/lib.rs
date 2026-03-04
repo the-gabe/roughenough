@@ -4,6 +4,7 @@ pub mod metrics;
 pub mod network;
 pub mod requests;
 pub mod responses;
+pub mod tcp_network;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

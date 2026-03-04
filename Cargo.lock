@@ -2690,6 +2690,8 @@ dependencies = [
  "roughenough-merkle",
  "roughenough-protocol",
  "roughenough-server",
+ "rustls 0.23.35",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "thiserror",

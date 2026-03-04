@@ -134,4 +134,26 @@ pub struct Args {
         default_value_t = false
     )]
     pub zulu: bool,
+
+    #[clap(
+        long,
+        help = "Use TCP transport instead of UDP",
+        default_value_t = false
+    )]
+    pub tcp: bool,
+
+    #[clap(
+        long,
+        help = "Use TLS over TCP (requires the 'tls' feature)",
+        default_value_t = false
+    )]
+    pub tls: bool,
+
+    #[clap(
+        long,
+        requires = "tls",
+        help = "Skip TLS certificate verification (needed for initial time sync when system clock is wrong)",
+        default_value_t = false
+    )]
+    pub tls_no_verify: bool,
 }

@@ -6,12 +6,13 @@ use std::time::Duration;
 use clap::Parser;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
-use roughenough_client::ClientError::DnsLookupFailed;
+use roughenough_client::ClientError::{self, DnsLookupFailed};
 use roughenough_client::args::Args;
 use roughenough_client::measurement::Measurement;
 use roughenough_client::reporting::MalfeasanceReport;
 use roughenough_client::sequence::MeasurementSequence;
 use roughenough_client::server_list::ServerList;
+use roughenough_client::transport::TcpTransport;
 use roughenough_client::{CausalityViolation, Client, ResponseValidator, server_list};
 use roughenough_common::encoding::try_decode_key;
 use tracing::{debug, error, info};
@@ -58,7 +59,7 @@ fn main() {
 fn query_single_server(args: &Args, hostname: &String) -> u64 {
     let port = args.port.unwrap();
 
-    let client = Client::new(hostname, port, args.pub_key.as_deref()).unwrap_or_else(|e| {
+    let client = build_client(args, hostname, port).unwrap_or_else(|e| {
         error!("Error creating client for '{hostname}:{port}': {e}");
         std::process::exit(-1);
     });
@@ -76,6 +77,47 @@ fn query_single_server(args: &Args, hostname: &String) -> u64 {
 
     // Return the last midpoint received
     midpoint
+}
+
+fn build_client(args: &Args, hostname: &str, port: u16) -> Result<Client, ClientError> {
+    let host_port = format!("{hostname}:{port}");
+    let sock_addr = host_port
+        .to_socket_addrs()?
+        .next()
+        .ok_or(DnsLookupFailed(host_port))?;
+
+    let timeout = Duration::from_secs(args.timeout as u64);
+    let mut builder = Client::builder(sock_addr)
+        .hostname(hostname)
+        .timeout(timeout);
+
+    if let Some(ref encoded_key) = args.pub_key {
+        let pub_key = try_decode_key(encoded_key)?;
+        builder = builder.public_key(pub_key);
+    }
+
+    if args.tls {
+        #[cfg(feature = "tls")]
+        {
+            use roughenough_client::transport::TlsTcpTransport;
+            let mut transport = TlsTcpTransport::new(timeout, hostname);
+            if args.tls_no_verify {
+                transport = transport.no_verify();
+            }
+            builder = builder.transport(Box::new(transport));
+        }
+        #[cfg(not(feature = "tls"))]
+        {
+            return Err(ClientError::InvalidConfiguration(
+                "--tls requires the 'tls' feature to be enabled at compile time".to_string(),
+            ));
+        }
+    } else if args.tcp {
+        let transport = TcpTransport::new(timeout);
+        builder = builder.transport(Box::new(transport));
+    }
+
+    Ok(builder.build())
 }
 
 fn query_multiple_servers(args: &Args, list_file: &String) -> u64 {
